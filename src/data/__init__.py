@@ -1,52 +1,32 @@
 """Media Recommender System - Data Module"""
 
-from .dataset import (
-    DataConfig,
-    DataProcessor,
-    InteractionDataset,
-    SequenceDataset,
-    ContentDataset,
-    ContrastiveDataset,
-    collate_sequences
+# Media database (no dependencies)
+from .media_database import (
+    MEDIA_DATABASE,
+    get_all_media,
+    get_media_by_id,
+    get_media_by_genre,
+    get_recommendations_for_user,
+    get_similar_items,
+    get_trending,
+    get_top_rated
 )
 
-from .preprocessor import (
-    PreprocessConfig,
-    TextPreprocessor,
-    NumericPreprocessor,
-    CategoricalPreprocessor,
-    InteractionPreprocessor,
-    DataPreprocessingPipeline
+# User profiles (no dependencies)
+from .user_profiles import (
+    UserProfile,
+    UserType,
+    USER_PROFILES,
+    get_user_profile,
+    get_personalized_recommendations,
+    get_user_profile_summary,
+    get_recommendation_explanation
 )
 
-from .feature_engineering import (
-    FeatureConfig,
-    UserFeatureExtractor,
-    ItemFeatureExtractor,
-    FeatureStore,
-    FeatureEngineeringPipeline
-)
-
-__all__ = [
-    # Dataset
-    "DataConfig",
-    "DataProcessor",
-    "InteractionDataset",
-    "SequenceDataset",
-    "ContentDataset",
-    "ContrastiveDataset",
-    "collate_sequences",
-    # Preprocessor
-    "PreprocessConfig",
-    "TextPreprocessor",
-    "NumericPreprocessor",
-    "CategoricalPreprocessor",
-    "InteractionPreprocessor",
-    "DataPreprocessingPipeline",
-    # Feature Engineering
-    "FeatureConfig",
-    "UserFeatureExtractor",
-    "ItemFeatureExtractor",
-    "FeatureStore",
-    "FeatureEngineeringPipeline"
-]
+# Optional imports that require torch/numpy
+try:
+    from .dataset import *
+    from .preprocessor import *
+    from .feature_engineering import *
+except ImportError:
+    pass

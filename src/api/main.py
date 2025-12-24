@@ -45,6 +45,25 @@ except ImportError:
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import media database
+try:
+    from src.data.media_database import (
+        MEDIA_DATABASE, get_all_media, get_media_by_id, 
+        get_media_by_genre, get_recommendations_for_user,
+        get_similar_items as get_similar_media,
+        get_trending, get_top_rated
+    )
+    from src.data.user_profiles import (
+        get_user_profile, get_personalized_recommendations,
+        get_user_profile_summary, get_recommendation_explanation,
+        USER_PROFILES
+    )
+    MEDIA_DB_AVAILABLE = True
+except ImportError:
+    MEDIA_DB_AVAILABLE = False
+    MEDIA_DATABASE = []
+    USER_PROFILES = {}
+
 # Prometheus metrics (only if available)
 if PROMETHEUS_AVAILABLE:
     REQUEST_COUNT = Counter(
@@ -87,7 +106,6 @@ class UserProfile(BaseModel):
 
 class RecommendationRequest(BaseModel):
     """Request for recommendations."""
-    user_id: int
     n_recommendations: int = Field(default=10, ge=1, le=100)
     exclude_items: List[int] = Field(default_factory=list)
     content_filter: Optional[str] = None
@@ -279,41 +297,63 @@ async def get_recommendations(
     start_time = time.time()
     
     try:
-        # In production, use actual recommender
-        # user_profile = UserProfile(
-        #     user_id=user_id,
-        #     history=request.exclude_items
-        # )
-        # recs = state.recommender.recommend(
-        #     user_profile,
-        #     n_recommendations=request.n_recommendations,
-        #     exclude_items=request.exclude_items
-        # )
-        
-        # Demo: generate sample recommendations
-        import random
-        all_items = list(state.item_catalog.keys())
-        available_items = [i for i in all_items if i not in request.exclude_items]
-        
-        selected_items = random.sample(
-            available_items, 
-            min(request.n_recommendations, len(available_items))
-        )
-        
-        recommendations = []
-        for i, item_id in enumerate(selected_items):
-            item_data = state.item_catalog.get(item_id, {})
-            score = 1.0 - (i * 0.05)  # Decreasing scores
+        # Use intelligent user profile system
+        if MEDIA_DB_AVAILABLE and MEDIA_DATABASE:
+            # Get ML-based personalized recommendations
+            recs_data = get_personalized_recommendations(
+                user_id=user_id,
+                n=request.n_recommendations,
+                exclude_ids=request.exclude_items
+            )
             
-            recommendations.append(RecommendationItem(
-                item_id=item_id,
-                score=score,
-                explanation=f"Recommended based on your interest in {item_data.get('genre', 'content')}",
-                metadata={
-                    "title": item_data.get("title"),
-                    "genre": item_data.get("genre")
-                }
-            ))
+            recommendations = []
+            for i, item in enumerate(recs_data):
+                recommendations.append(RecommendationItem(
+                    item_id=item["id"],
+                    score=item.get("score", 0.95 - i * 0.03),
+                    explanation="; ".join(item.get("reasons", ["Recommended for you"])),
+                    metadata={
+                        "title": item["title"],
+                        "genre": ", ".join(item["genres"]),
+                        "genres": item["genres"],
+                        "year": item["year"],
+                        "rating": item["rating"],
+                        "poster": item["poster"],
+                        "backdrop": item.get("backdrop", ""),
+                        "description": item["description"],
+                        "duration": item["duration"],
+                        "director": item["director"],
+                        "cast": item["cast"],
+                        "media_type": item["media_type"],
+                        "match_percentage": item.get("match_percentage", 85),
+                        "reasons": item.get("reasons", [])
+                    }
+                ))
+        else:
+            # Fallback to demo data
+            import random
+            all_items = list(state.item_catalog.keys())
+            available_items = [i for i in all_items if i not in request.exclude_items]
+            
+            selected_items = random.sample(
+                available_items, 
+                min(request.n_recommendations, len(available_items))
+            )
+            
+            recommendations = []
+            for i, item_id in enumerate(selected_items):
+                item_data = state.item_catalog.get(item_id, {})
+                score = 1.0 - (i * 0.05)
+                
+                recommendations.append(RecommendationItem(
+                    item_id=item_id,
+                    score=score,
+                    explanation=f"Recommended based on your interest in {item_data.get('genre', 'content')}",
+                    metadata={
+                        "title": item_data.get("title"),
+                        "genre": item_data.get("genre")
+                    }
+                ))
         
         latency_ms = (time.time() - start_time) * 1000
         
@@ -398,6 +438,20 @@ async def get_item(
     state: AppState = Depends(get_state)
 ):
     """Get item information."""
+    # Try media database first
+    if MEDIA_DB_AVAILABLE:
+        item_data = get_media_by_id(item_id)
+        if item_data:
+            return ItemInfo(
+                item_id=item_id,
+                title=item_data.get("title", ""),
+                description=item_data.get("description"),
+                genre=", ".join(item_data.get("genres", [])),
+                tags=item_data.get("genres", []),
+                popularity_score=item_data.get("popularity", 0.0)
+            )
+    
+    # Fallback to state catalog
     item_data = state.item_catalog.get(item_id)
     
     if not item_data:
@@ -420,13 +474,31 @@ async def get_similar_items(
     state: AppState = Depends(get_state)
 ):
     """Get similar items based on content."""
+    # Try media database first
+    if MEDIA_DB_AVAILABLE:
+        similar = get_similar_media(item_id, n)
+        if similar:
+            return {
+                "source_item_id": item_id,
+                "similar_items": [
+                    {
+                        "item_id": item["id"],
+                        "score": item.get("similarity", 0.9),
+                        "title": item["title"],
+                        "year": item["year"],
+                        "genres": item["genres"],
+                        "rating": item["rating"],
+                        "poster": item["poster"],
+                        "description": item["description"]
+                    }
+                    for item in similar
+                ]
+            }
+    
+    # Fallback
     if item_id not in state.item_catalog:
         raise HTTPException(status_code=404, detail="Item not found")
     
-    # In production, use content embeddings
-    # similar = state.recommender.get_similar_items(item_id, n)
-    
-    # Demo: return random items from same genre
     source_genre = state.item_catalog[item_id].get("genre")
     similar_items = [
         {"item_id": i, "score": 0.9 - (idx * 0.05)}
@@ -447,18 +519,201 @@ async def get_popular_items(
     state: AppState = Depends(get_state)
 ):
     """Get popular items, optionally filtered by genre."""
+    # Try media database first
+    if MEDIA_DB_AVAILABLE:
+        if genre:
+            items = get_media_by_genre(genre)[:n]
+        else:
+            items = get_trending(n)
+        
+        return {
+            "items": [
+                {
+                    "item_id": item["id"],
+                    "title": item["title"],
+                    "year": item["year"],
+                    "genres": item["genres"],
+                    "rating": item["rating"],
+                    "poster": item["poster"],
+                    "backdrop": item.get("backdrop", ""),
+                    "description": item["description"],
+                    "popularity_score": item["popularity"],
+                    "media_type": item["media_type"]
+                }
+                for item in items
+            ]
+        }
+    
+    # Fallback
     items = list(state.item_catalog.items())
     
     if genre:
         items = [(i, d) for i, d in items if d.get("genre") == genre]
     
-    # Sort by popularity (demo: just take first n)
     popular = [
         {"item_id": i, "score": 1.0 - (idx * 0.01), **d}
         for idx, (i, d) in enumerate(items[:n])
     ]
     
-    return {"popular_items": popular}
+    return {"items": popular}
+
+
+@app.get("/api/v1/trending")
+async def get_trending_items(
+    n: int = Query(default=10, ge=1, le=50)
+):
+    """Get trending items."""
+    if MEDIA_DB_AVAILABLE:
+        items = get_trending(n)
+        return {
+            "items": [
+                {
+                    "item_id": item["id"],
+                    "title": item["title"],
+                    "year": item["year"],
+                    "genres": item["genres"],
+                    "rating": item["rating"],
+                    "poster": item["poster"],
+                    "backdrop": item.get("backdrop", ""),
+                    "description": item["description"],
+                    "popularity_score": item["popularity"],
+                    "media_type": item["media_type"]
+                }
+                for item in items
+            ]
+        }
+    return {"items": []}
+
+
+@app.get("/api/v1/top-rated")
+async def get_top_rated_items(
+    n: int = Query(default=10, ge=1, le=50)
+):
+    """Get top rated items."""
+    if MEDIA_DB_AVAILABLE:
+        items = get_top_rated(n)
+        return {
+            "items": [
+                {
+                    "item_id": item["id"],
+                    "title": item["title"],
+                    "year": item["year"],
+                    "genres": item["genres"],
+                    "rating": item["rating"],
+                    "poster": item["poster"],
+                    "backdrop": item.get("backdrop", ""),
+                    "description": item["description"],
+                    "popularity_score": item["popularity"],
+                    "media_type": item["media_type"]
+                }
+                for item in items
+            ]
+        }
+    return {"items": []}
+
+
+@app.get("/api/v1/genres")
+async def get_genres():
+    """Get all available genres."""
+    if MEDIA_DB_AVAILABLE:
+        genres = set()
+        for item in MEDIA_DATABASE:
+            genres.update(item.get("genres", []))
+        return {"genres": sorted(list(genres))}
+    return {"genres": []}
+
+
+@app.get("/api/v1/all-media")
+async def get_all_media_items(
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0)
+):
+    """Get all media items with pagination."""
+    if MEDIA_DB_AVAILABLE:
+        items = MEDIA_DATABASE[offset:offset + limit]
+        return {
+            "total": len(MEDIA_DATABASE),
+            "limit": limit,
+            "offset": offset,
+            "items": [
+                {
+                    "item_id": item["id"],
+                    "title": item["title"],
+                    "year": item["year"],
+                    "genres": item["genres"],
+                    "rating": item["rating"],
+                    "poster": item["poster"],
+                    "backdrop": item.get("backdrop", ""),
+                    "description": item["description"],
+                    "duration": item["duration"],
+                    "director": item["director"],
+                    "cast": item["cast"],
+                    "popularity_score": item["popularity"],
+                    "media_type": item["media_type"]
+                }
+                for item in items
+            ]
+        }
+    return {"total": 0, "items": []}
+
+
+@app.get("/api/v1/users/{user_id}/profile")
+async def get_user_profile_endpoint(user_id: int):
+    """Get user profile with preferences and viewing history."""
+    if MEDIA_DB_AVAILABLE:
+        try:
+            profile = get_user_profile_summary(user_id)
+            return profile
+        except Exception as e:
+            logger.error(f"Error getting user profile: {e}")
+    
+    # Fallback profile
+    return {
+        "user_id": user_id,
+        "name": f"User #{user_id}",
+        "type": "general",
+        "type_label": "General Viewer",
+        "preferred_genres": ["Drama", "Action"],
+        "disliked_genres": [],
+        "min_rating": 7.0,
+        "watched_count": 0,
+        "liked_count": 0
+    }
+
+
+@app.get("/api/v1/users/profiles")
+async def list_user_profiles():
+    """List all available demo user profiles."""
+    if MEDIA_DB_AVAILABLE and USER_PROFILES:
+        profiles = []
+        for uid, profile in USER_PROFILES.items():
+            profiles.append({
+                "user_id": uid,
+                "name": profile.name,
+                "type": profile.user_type.value,
+                "type_label": profile.user_type.value.replace("_", " ").title(),
+                "preferred_genres": profile.preferred_genres,
+                "description": f"Prefers {', '.join(profile.preferred_genres[:2])} content"
+            })
+        return {"profiles": profiles}
+    return {"profiles": []}
+
+
+@app.get("/api/v1/explain/{user_id}/{item_id}")
+async def explain_recommendation(user_id: int, item_id: int):
+    """Get detailed explanation for why an item was recommended to a user."""
+    if MEDIA_DB_AVAILABLE:
+        try:
+            explanation = get_recommendation_explanation(user_id, item_id)
+            return explanation
+        except Exception as e:
+            logger.error(f"Error getting explanation: {e}")
+    
+    return {
+        "error": "Explanation not available",
+        "user_id": user_id,
+        "item_id": item_id
+    }
 
 
 # Background task
