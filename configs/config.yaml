@@ -1,0 +1,216 @@
+# Media Recommender System Configuration
+# ==========================================
+
+app:
+  name: "media-recommender"
+  version: "1.0.0"
+  debug: false
+  log_level: "INFO"
+
+# Model Configurations
+model:
+  # BERT Embedder
+  bert:
+    model_name: "bert-base-uncased"
+    embedding_dim: 768
+    max_length: 512
+    pooling_strategy: "mean"  # mean, cls, max
+    fine_tune: true
+  
+  # Collaborative Filtering
+  collaborative:
+    embedding_dim: 128
+    num_factors: 64
+    regularization: 0.01
+    implicit_feedback: true
+  
+  # LSTM Sequential
+  lstm:
+    hidden_size: 256
+    num_layers: 2
+    dropout: 0.3
+    bidirectional: true
+    max_sequence_length: 50
+  
+  # Contrastive Learning
+  contrastive:
+    embedding_dim: 256
+    temperature: 0.07
+    projection_dim: 128
+    use_hard_negatives: true
+    num_negatives: 10
+  
+  # Word2Vec / NLP
+  nlp:
+    word2vec_dim: 300
+    word2vec_window: 5
+    word2vec_min_count: 5
+    spacy_model: "en_core_web_lg"
+  
+  # Hybrid Recommender
+  hybrid:
+    ensemble_weights:
+      collaborative: 0.3
+      content_based: 0.25
+      sequential: 0.25
+      contrastive: 0.2
+    num_recommendations: 10
+    diversity_factor: 0.3
+    cold_start_threshold: 5  # min interactions before using collaborative
+
+# Training Configuration
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  epochs: 50
+  early_stopping:
+    enabled: true
+    patience: 5
+    min_delta: 0.001
+  gradient_clip: 1.0
+  warmup_steps: 1000
+  scheduler: "cosine"  # cosine, linear, constant
+  
+  # Data split
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  
+  # Device
+  device: "cuda"  # cuda, cpu, auto
+  num_workers: 4
+  pin_memory: true
+  
+  # Checkpointing
+  checkpoint_dir: "checkpoints"
+  save_every_n_epochs: 5
+  keep_n_checkpoints: 3
+
+# Data Configuration
+data:
+  # Dataset paths
+  raw_data_dir: "data/raw"
+  processed_data_dir: "data/processed"
+  cache_dir: "data/cache"
+  
+  # Feature engineering
+  user_features:
+    - "age_group"
+    - "gender"
+    - "location"
+    - "device_type"
+    - "subscription_tier"
+  
+  item_features:
+    - "title"
+    - "description"
+    - "genre"
+    - "tags"
+    - "duration"
+    - "release_date"
+    - "popularity_score"
+  
+  # Preprocessing
+  min_user_interactions: 3
+  min_item_interactions: 5
+  max_sequence_length: 100
+
+# Infrastructure Configuration
+infrastructure:
+  # PostgreSQL
+  postgres:
+    host: "localhost"
+    port: 5432
+    database: "recommender"
+    user: "postgres"
+    password: "${POSTGRES_PASSWORD}"
+    pool_size: 20
+    max_overflow: 10
+  
+  # Redis
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    password: "${REDIS_PASSWORD}"
+    ttl_seconds: 3600
+    max_connections: 50
+  
+  # Elasticsearch
+  elasticsearch:
+    hosts:
+      - "http://localhost:9200"
+    index_prefix: "media_"
+    shards: 3
+    replicas: 1
+  
+  # Message Queue (Celery)
+  celery:
+    broker_url: "redis://localhost:6379/1"
+    result_backend: "redis://localhost:6379/2"
+    task_serializer: "json"
+    result_serializer: "json"
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  cors_origins:
+    - "http://localhost:3000"
+    - "https://yourdomain.com"
+  rate_limit:
+    enabled: true
+    requests_per_minute: 100
+  timeout_seconds: 30
+  max_batch_size: 100
+
+# Monitoring Configuration
+monitoring:
+  # Prometheus
+  prometheus:
+    enabled: true
+    port: 9090
+    scrape_interval: 15s
+  
+  # OpenTelemetry
+  opentelemetry:
+    enabled: true
+    service_name: "media-recommender"
+    exporter: "otlp"
+    endpoint: "http://localhost:4317"
+    sample_rate: 0.1
+  
+  # Grafana
+  grafana:
+    enabled: true
+    port: 3000
+  
+  # Alerting
+  alerting:
+    enabled: true
+    latency_threshold_ms: 500
+    error_rate_threshold: 0.01
+    uptime_threshold: 0.999
+
+# AWS SageMaker Configuration
+sagemaker:
+  enabled: false
+  region: "us-east-1"
+  role_arn: "${SAGEMAKER_ROLE_ARN}"
+  instance_type: "ml.g4dn.xlarge"
+  instance_count: 2
+  endpoint_name: "media-recommender-endpoint"
+  model_data_url: "s3://your-bucket/models/"
+
+# Experiment Tracking
+experiment:
+  mlflow:
+    enabled: true
+    tracking_uri: "http://localhost:5000"
+    experiment_name: "media-recommender"
+  wandb:
+    enabled: false
+    project: "media-recommender"
+    entity: "your-team"
